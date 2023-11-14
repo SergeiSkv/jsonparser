@@ -1,16 +1,17 @@
 /*
-   Each test should process 24kb json record (based on Discourse API)
-   It should read 2 arrays, and for each item in array get few fields.
-   Basically it means processing full JSON file.
+Each test should process 24kb json record (based on Discourse API)
+It should read 2 arrays, and for each item in array get few fields.
+Basically it means processing full JSON file.
 */
 package benchmark
 
 import (
-	"github.com/buger/jsonparser"
-	"testing"
 	// "github.com/Jeffail/gabs"
 	// "github.com/bitly/go-simplejson"
 	"encoding/json"
+	"testing"
+
+	"github.com/SergeiSkv/jsonparser"
 	"github.com/a8m/djson"
 	jlexer "github.com/mailru/easyjson/jlexer"
 	"github.com/pquerna/ffjson/ffjson"
@@ -21,6 +22,24 @@ import (
 /*
    github.com/buger/jsonparser
 */
+
+func BenchmarkObject(b *testing.B) {
+	out := make(map[string]interface{})
+
+	b.SetBytes(int64(len(largeFixture)))
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		err := jsonparser.ObjectEach(largeFixture, func(key []byte, value []byte, dataType jsonparser.ValueType, offset int) error {
+			out[string(key)] = value
+			return nil
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+		_ = out
+	}
+}
 func BenchmarkJsonParserLarge(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		jsonparser.ArrayEach(largeFixture, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
@@ -37,7 +56,7 @@ func BenchmarkJsonParserLarge(b *testing.B) {
 }
 
 /*
-   encoding/json
+encoding/json
 */
 func BenchmarkEncodingJsonStructLarge(b *testing.B) {
 	for i := 0; i < b.N; i++ {
@@ -93,7 +112,7 @@ func BenchmarkFFJsonLarge(b *testing.B) {
 }
 
 /*
-   github.com/mailru/easyjson
+github.com/mailru/easyjson
 */
 func BenchmarkEasyJsonLarge(b *testing.B) {
 	for i := 0; i < b.N; i++ {
@@ -112,7 +131,7 @@ func BenchmarkEasyJsonLarge(b *testing.B) {
 }
 
 /*
-   github.com/a8m/djson
+github.com/a8m/djson
 */
 func BenchmarkDjsonLarge(b *testing.B) {
 	for i := 0; i < b.N; i++ {

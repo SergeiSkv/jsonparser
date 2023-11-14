@@ -707,12 +707,10 @@ func WriteToBuffer(buffer []byte, str string) int {
 }
 
 /*
-
 Del - Receives existing data structure, path to delete.
 
 Returns:
 `data` - return modified data
-
 */
 func Delete(data []byte, keys ...string) []byte {
 	lk := len(keys)
@@ -793,13 +791,11 @@ func Delete(data []byte, keys ...string) []byte {
 }
 
 /*
-
 Set - Receives existing data structure, path to set, and data to set at that key.
 
 Returns:
 `value` - modified byte array
 `err` - On any parsing error
-
 */
 func Set(data []byte, setValue []byte, keys ...string) (value []byte, err error) {
 	// ensure keys are set
@@ -1071,6 +1067,7 @@ func ArrayEach(data []byte, cb func(value []byte, dataType ValueType, offset int
 
 // ObjectEach iterates over the key-value pairs of a JSON object, invoking a given callback for each such entry
 func ObjectEach(data []byte, callback func(key []byte, value []byte, dataType ValueType, offset int) error, keys ...string) (err error) {
+	var stackbuf [unescapeStackBufSize]byte // stack-allocated array for allocation-free unescaping of small strings
 	offset := 0
 
 	// Descend to the desired key, if requested
@@ -1082,7 +1079,7 @@ func ObjectEach(data []byte, callback func(key []byte, value []byte, dataType Va
 		}
 	}
 
-	// Validate and skip past opening brace
+	//Validate and skip past opening brace
 	if off := nextToken(data[offset:]); off == -1 {
 		return MalformedObjectError
 	} else if offset += off; data[offset] != '{' {
@@ -1091,22 +1088,22 @@ func ObjectEach(data []byte, callback func(key []byte, value []byte, dataType Va
 		offset++
 	}
 
-	// Skip to the first token inside the object, or stop if we find the ending brace
-	if off := nextToken(data[offset:]); off == -1 {
-		return MalformedJsonError
-	} else if offset += off; data[offset] == '}' {
-		return nil
-	}
+	// Create a buffer with a fixed size
+	const bufferSize = 512 // Adjust the size based on your requirements
+	buffer := make([]byte, bufferSize)
 
 	// Loop pre-condition: data[offset] points to what should be either the next entry's key, or the closing brace (if it's anything else, the JSON is malformed)
 	for offset < len(data) {
 		// Step 1: find the next key
 		var key []byte
 
-		// Check what the the next token is: start of string, end of object, or something else (error)
+		// Check what the next token is: start of string, end of object, or something else (error)
 		switch data[offset] {
 		case '"':
 			offset++ // accept as string and skip opening quote
+		case '\n', '\t', ' ':
+			offset++
+			continue
 		case '}':
 			return nil // we found the end of the object; stop and return success
 		default:
@@ -1124,7 +1121,6 @@ func ObjectEach(data []byte, callback func(key []byte, value []byte, dataType Va
 
 		// Unescape the string if needed
 		if keyEscaped {
-			var stackbuf [unescapeStackBufSize]byte // stack-allocated array for allocation-free unescaping of small strings
 			if keyUnescaped, err := Unescape(key, stackbuf[:]); err != nil {
 				return MalformedStringEscapeError
 			} else {
@@ -1142,7 +1138,11 @@ func ObjectEach(data []byte, callback func(key []byte, value []byte, dataType Va
 		}
 
 		// Step 3: find the associated value, then invoke the callback
-		if value, valueType, off, err := Get(data[offset:]); err != nil {
+		// Use a buffer to read a fixed-size chunk of data
+		readSize := min(bufferSize, len(data)-offset)
+		copy(buffer, data[offset:offset+readSize])
+
+		if value, valueType, off, err := Get(buffer); err != nil {
 			return err
 		} else if err := callback(key, value, valueType, offset+off); err != nil { // Invoke the callback here!
 			return err
@@ -1155,9 +1155,12 @@ func ObjectEach(data []byte, callback func(key []byte, value []byte, dataType Va
 			return MalformedArrayError
 		} else {
 			offset += off
+			if offset >= len(data) {
+				break // Stop if we reached the end of the data
+			}
 			switch data[offset] {
 			case '}':
-				return nil // Stop if we hit the close brace
+				break // Stop if we hit the close brace
 			case ',':
 				offset++ // Ignore the comma
 			default:
@@ -1173,7 +1176,15 @@ func ObjectEach(data []byte, callback func(key []byte, value []byte, dataType Va
 		}
 	}
 
-	return MalformedObjectError // we shouldn't get here; it's expected that we will return via finding the ending brace
+	return nil // Successfully processed the JSON object
+}
+
+// min returns the smaller of x or y
+func min(x, y int) int {
+	if x < y {
+		return x
+	}
+	return y
 }
 
 // GetUnsafeString returns the value retrieved by `Get`, use creates string without memory allocation by mapping string to slice memory. It does not handle escape symbols.
